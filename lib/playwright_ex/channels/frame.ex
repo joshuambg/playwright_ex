@@ -1252,7 +1252,7 @@ defmodule PlaywrightEx.Frame do
       connection: PlaywrightEx.Channel.connection_opt(),
       timeout: PlaywrightEx.Channel.timeout_opt(),
       url: [
-        type: :any,
+        type: {:or, [:string, {:struct, Regex}, {:fun, 1}]},
         required: true,
         doc:
           "URL matcher to wait for. Supports a string (exact or glob `*`/`**`), `Regex`, or a function `fn URI.t() -> boolean end`."
@@ -1289,31 +1289,25 @@ defmodule PlaywrightEx.Frame do
     {connection, opts} = opts |> PlaywrightEx.Channel.validate_known!(@schema) |> Keyword.pop!(:connection)
     {timeout, opts} = Keyword.pop!(opts, :timeout)
     wait_state = opts |> Keyword.fetch!(:wait_until) |> normalize_wait_state()
+    url_matcher = opts |> Keyword.fetch!(:url) |> build_url_matcher()
 
-    with {:ok, url_matcher} <- build_url_matcher(opts[:url]) do
-      FrameEventRecorder.wait_for_url(connection, frame_id, url_matcher, wait_state, timeout)
-    end
+    FrameEventRecorder.wait_for_url(connection, frame_id, url_matcher, wait_state, timeout)
   end
 
   defp normalize_wait_state(state) when is_atom(state), do: normalize_wait_state(Atom.to_string(state))
   defp normalize_wait_state(state), do: state
 
-  defp build_url_matcher(%Regex{} = regex), do: {:ok, &Regex.match?(regex, &1)}
+  defp build_url_matcher(%Regex{} = regex), do: &Regex.match?(regex, &1)
 
   defp build_url_matcher(matcher) when is_function(matcher, 1) do
-    {:ok,
-     fn url ->
-       matcher.(URI.parse(url))
-     end}
+    fn url ->
+      matcher.(URI.parse(url))
+    end
   end
 
   defp build_url_matcher(matcher) when is_binary(matcher) do
     regex = matcher |> glob_to_regex() |> Regex.compile!()
-    {:ok, &Regex.match?(regex, &1)}
-  end
-
-  defp build_url_matcher(_matcher) do
-    {:error, %{message: "url must be a string, Regex, or function with arity 1"}}
+    &Regex.match?(regex, &1)
   end
 
   defp glob_to_regex(glob) do

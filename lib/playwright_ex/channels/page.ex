@@ -217,7 +217,7 @@ defmodule PlaywrightEx.Page do
       connection: PlaywrightEx.Channel.connection_opt(),
       timeout: PlaywrightEx.Channel.timeout_opt(),
       url: [
-        type: :any,
+        type: {:or, [:string, {:struct, Regex}, {:fun, 1}]},
         required: true,
         doc: "Expected URL as a string, `Regex`, or predicate function `fn URI.t() -> boolean end`."
       ],
@@ -337,25 +337,23 @@ defmodule PlaywrightEx.Page do
   end
 
   defp expect_url_with_text_matcher(frame_id, url_expectation, is_not?, ignore_case?, timeout, connection) do
-    with {:ok, expected_text} <- serialize_expected_url(url_expectation, ignore_case?),
-         {:ok, matches} <-
+    with {:ok, matches?} <-
            Frame.expect(frame_id,
              connection: connection,
              timeout: timeout,
              expression: "to.have.url",
              is_not: is_not?,
-             expected_text: [expected_text]
+             expected_text: [serialize_expected_url(url_expectation, ignore_case?)]
            ) do
-      {:ok, matches != is_not?}
+      {:ok, matches? != is_not?}
     end
   end
 
   defp serialize_expected_url(value, ignore_case?) when is_binary(value) do
-    {:ok,
-     %{
-       string: maybe_downcase_string(value, ignore_case?),
-       ignore_case: ignore_case?
-     }}
+    %{
+      string: maybe_downcase_string(value, ignore_case?),
+      ignore_case: ignore_case?
+    }
   end
 
   defp serialize_expected_url(%Regex{source: source, opts: opts}, ignore_case?) do
@@ -364,16 +362,11 @@ defmodule PlaywrightEx.Page do
       |> Serialization.regex_flags_for_protocol()
       |> maybe_add_regex_ignore_case(ignore_case?)
 
-    {:ok,
-     %{
-       regex_source: source,
-       regex_flags: regex_flags,
-       ignore_case: ignore_case?
-     }}
-  end
-
-  defp serialize_expected_url(_value, _ignore_case?) do
-    {:error, %{message: "url must be a string, Regex, or function with arity 1"}}
+    %{
+      regex_source: source,
+      regex_flags: regex_flags,
+      ignore_case: ignore_case?
+    }
   end
 
   defp maybe_downcase_uri(uri, false), do: uri
